@@ -2,20 +2,22 @@ const { Pool } = require("pg");
 const { nanoid } = require("nanoid");
 const InvariantError = require("../../exceptions/InvariantError");
 const NotFoundError = require("../../exceptions/NotFoundError");
+const AuthorizationError = require("../../exceptions/AuthorizationError");
 const { mapSongDB } = require("../../utils");
 
 class SongsService {
-    constructor() {
+    constructor(collaborationService) {
         this._pool = new Pool();
+        this._collaborationService = collaborationService;
     }
 
-    async addSong({ title, year, genre, performer, duration, albumId }) {
+    async addSong({ title, year, genre, performer, duration, albumId, owner }) {
         const id = nanoid(16);
         const createdAt = new Date().toISOString();
         const updatedAt = createdAt;
 
         const query = {
-            text: "INSERT INTO songs VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+            text: "INSERT INTO songs VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9,$10) RETURNING id",
             values: [
                 id,
                 title,
@@ -26,6 +28,7 @@ class SongsService {
                 albumId,
                 createdAt,
                 updatedAt,
+                owner,
             ],
         };
 
@@ -39,7 +42,10 @@ class SongsService {
     }
 
     async getSongs() {
-        const result = await this._pool.query("SELECT * FROM songs");
+        const query = {
+            text: "SELECT id,title,performer FROM songs",
+        };
+        const result = await this._pool.query(query);
         return result.rows.map(mapSongDB);
     }
 
@@ -83,6 +89,46 @@ class SongsService {
 
         if (!result.rows.length) {
             throw new NotFoundError("Lagu gagal dihapus. Id tidak ditemukan");
+        }
+    }
+
+    // v2
+    async verifySongOwner(id, owner) {
+        const query = {
+            text: "SELECT * FROM songs WHERE id = $1",
+            values: [id],
+        };
+
+        const result = await this._pool.query(query);
+
+        if (!result.rows.length) {
+            throw new NotFoundError("Lagu tidak ditemukan");
+        }
+
+        const song = result.rows[0];
+
+        if (song.owner !== owner) {
+            throw new AuthorizationError(
+                "Anda tidak berhak mengakses resource ini"
+            );
+        }
+    }
+
+    async verifyNoteAccess(songId, userId) {
+        try {
+            await this.verifyNoteOwner(songId, userId);
+        } catch (error) {
+            if (error instanceof NotFoundError) {
+                throw error;
+            }
+            try {
+                await this._collaborationService.verifyCollaborator(
+                    songId,
+                    userId
+                );
+            } catch {
+                throw error;
+            }
         }
     }
 }
