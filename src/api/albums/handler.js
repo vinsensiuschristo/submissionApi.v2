@@ -1,4 +1,5 @@
 const ClientError = require("../../exceptions/ClientError");
+const { mapDBAlbum } = require("../../utils/index");
 
 class AlbumsHandler {
     constructor(service, validator) {
@@ -54,15 +55,12 @@ class AlbumsHandler {
             const { id } = request.params;
 
             const album = await this._service.getAlbumById(id);
+            const mapDB = mapDBAlbum(album.album, album.songs);
 
             return {
                 status: "success",
                 data: {
-                    album: {
-                        id: album.id,
-                        name: album.name,
-                        year: album.year,
-                    },
+                    album: mapDB,
                 },
             };
         } catch (error) {
